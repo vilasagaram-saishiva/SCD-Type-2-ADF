@@ -1,0 +1,15 @@
+{
+	"name": "adf-practice-08",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "malaysiawest",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "7ac719c4-d7ee-4b03-8604-c3f08262afca",
+		"tenantId": "bdb14220-2ef0-4e44-b715-9e3824cbedfa"
+	}
+}

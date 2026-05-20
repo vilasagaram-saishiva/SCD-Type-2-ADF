@@ -1,0 +1,91 @@
+{
+	"name": "DF_Client_SCD2_First_Load",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "DS_Client_Source_CSV",
+						"type": "DatasetReference"
+					},
+					"name": "srcday1clients"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "DS_Client_Target_Parquet",
+						"type": "DatasetReference"
+					},
+					"name": "sinkDimClientAccounts",
+					"rejectedDataLinkedService": {
+						"referenceName": "LS_ADLS_GEN2",
+						"type": "LinkedServiceReference"
+					}
+				}
+			],
+			"transformations": [
+				{
+					"name": "deriveColumns"
+				},
+				{
+					"name": "assertClientDataQuality"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          client_id as integer,",
+				"          client_name as string,",
+				"          account_type as string,",
+				"          risk_category as string,",
+				"          relationship_manager as string,",
+				"          branch as string,",
+				"          country as string,",
+				"          kyc_status as string,",
+				"          investment_limit as string,",
+				"          last_review_date as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false) ~> srcday1clients",
+				"assertClientDataQuality derive(surrogate_key = toString(client_id) + '_1',",
+				"          columneffective_start_date = toDate('2025-01-01'),",
+				"          effective_end_date = toDate('9999-12-31'),",
+				"          is_current = 'Y',",
+				"          hash_key = sha2(256, concat(account_type,risk_category,relationship_manager,branch,country,kyc_status,toString(investment_limit)))) ~> deriveColumns",
+				"srcday1clients assert(expectTrue(!isNull(client_id), false, 'valid_client_id'),",
+				"     expectTrue(!isNull(client_name) && client_name != '', false, 'valid_client_name')) ~> assertClientDataQuality",
+				"deriveColumns sink(allowSchemaDrift: true,",
+				"     validateSchema: true,",
+				"     format: 'parquet',",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     outputAssertFailedRows: true,",
+				"     assertFailure_fileSystem: 'sink',",
+				"     assertFailure_folderPath: 'error',",
+				"     ignoreAssertFailedRows: true,",
+				"     mapColumn(",
+				"          client_id,",
+				"          client_name,",
+				"          account_type,",
+				"          risk_category,",
+				"          relationship_manager,",
+				"          branch,",
+				"          country,",
+				"          kyc_status,",
+				"          investment_limit,",
+				"          last_review_date,",
+				"          surrogate_key,",
+				"          columneffective_start_date,",
+				"          effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     )) ~> sinkDimClientAccounts"
+			]
+		}
+	}
+}

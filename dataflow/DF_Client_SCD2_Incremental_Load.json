@@ -1,0 +1,305 @@
+{
+	"name": "DF_Client_SCD2_Incremental_Load",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "DS_Client_Day2_Source_CSV",
+						"type": "DatasetReference"
+					},
+					"name": "srcday2clients"
+				},
+				{
+					"dataset": {
+						"referenceName": "DS_Client_Target_Parquet",
+						"type": "DatasetReference"
+					},
+					"name": "srcexistingdimension"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "DS_Client_Target_Parquet",
+						"type": "DatasetReference"
+					},
+					"name": "sinkScd2Dimension"
+				}
+			],
+			"transformations": [
+				{
+					"name": "filterCurrentRecords"
+				},
+				{
+					"name": "deriveNewHash"
+				},
+				{
+					"name": "join1"
+				},
+				{
+					"name": "deriveRecordStatus"
+				},
+				{
+					"name": "splitRecords"
+				},
+				{
+					"name": "prepareNewRecords"
+				},
+				{
+					"name": "prepareChangedNewVersion"
+				},
+				{
+					"name": "selectAfterJoin"
+				},
+				{
+					"name": "selectExpiredOldRecord"
+				},
+				{
+					"name": "deriveExpireOldRecord"
+				},
+				{
+					"name": "filterExistingHistory"
+				},
+				{
+					"name": "selectNoChangeRecords"
+				},
+				{
+					"name": "selectNewRecords"
+				},
+				{
+					"name": "selectChangedNewVersion"
+				},
+				{
+					"name": "selectExistingHistory"
+				},
+				{
+					"name": "unionFinalScd2Records"
+				},
+				{
+					"name": "selectExpiredOldRecord1"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          client_id as integer,",
+				"          client_name as string,",
+				"          account_type as string,",
+				"          risk_category as string,",
+				"          relationship_manager as string,",
+				"          branch as string,",
+				"          country as string,",
+				"          kyc_status as string,",
+				"          investment_limit as integer,",
+				"          last_review_date as date",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false) ~> srcday2clients",
+				"source(output(",
+				"          client_id as integer,",
+				"          client_name as string,",
+				"          account_type as string,",
+				"          risk_category as string,",
+				"          relationship_manager as string,",
+				"          branch as string,",
+				"          country as string,",
+				"          kyc_status as string,",
+				"          investment_limit as integer,",
+				"          last_review_date as date,",
+				"          surrogate_key as string,",
+				"          columneffective_start_date as date,",
+				"          effective_end_date as date,",
+				"          is_current as string,",
+				"          hash_key as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'parquet') ~> srcexistingdimension",
+				"srcexistingdimension filter(is_current =='Y') ~> filterCurrentRecords",
+				"srcday2clients derive(new_hash_key = sha2(256, concat(     account_type,     risk_category,     relationship_manager,     branch,     country,     kyc_status,     toString(investment_limit) )),",
+				"          investment_limit = toInteger(investment_limit)) ~> deriveNewHash",
+				"deriveNewHash, filterCurrentRecords join(srcday2clients@client_id == srcexistingdimension@client_id,",
+				"     joinType:'left',",
+				"     matchType:'exact',",
+				"     ignoreSpaces: false,",
+				"     broadcast: 'auto')~> join1",
+				"selectAfterJoin derive(record_status = iif(isNull(tgt_client_id), 'NEW',\r",
+				"iif(src_hash_key != hash_key, 'CHANGED', 'NO_CHANGE'))) ~> deriveRecordStatus",
+				"deriveRecordStatus split(record_status == 'NEW',",
+				"     record_status == 'CHANGED',",
+				"     disjoint: false) ~> splitRecords@(newRecords, changedRecords, noChangeRecords)",
+				"splitRecords@newRecords derive(surrogate_key = toString(src_client_id) + '_' + toString(currentTimestamp()),",
+				"          effective_start_date = currentDate(),",
+				"          effective_end_date = toDate('9999-12-31'),",
+				"          is_current = toString('Y'),",
+				"          hash_key = toString(hash_key)) ~> prepareNewRecords",
+				"splitRecords@changedRecords derive(surrogate_key = toString(tgt_client_id) + '_' + toString(currentTimestamp()),",
+				"          effective_start_date = currentDate(),",
+				"          effective_end_date = toDate('9999-12-31'),",
+				"          is_current = toString('Y'),",
+				"          hash_key = toString(hash_key)) ~> prepareChangedNewVersion",
+				"join1 select(mapColumn(",
+				"          src_client_id = srcday2clients@client_id,",
+				"          src_client_name = srcday2clients@client_name,",
+				"          src_account_type = srcday2clients@account_type,",
+				"          src_risk_category = srcday2clients@risk_category,",
+				"          src_relationship_manager = srcday2clients@relationship_manager,",
+				"          src_branch = srcday2clients@branch,",
+				"          src_country = srcday2clients@country,",
+				"          src_kyc_status = srcday2clients@kyc_status,",
+				"          src_investment_limit = deriveNewHash@investment_limit,",
+				"          src_last_review_date = srcday2clients@last_review_date,",
+				"          src_hash_key = new_hash_key,",
+				"          tgt_client_id = srcexistingdimension@client_id,",
+				"          tgt_client_name = srcexistingdimension@client_name,",
+				"          tgt_account_type = srcexistingdimension@account_type,",
+				"          tgt_risk_category = srcexistingdimension@risk_category,",
+				"          tgt_relationship_manager = srcexistingdimension@relationship_manager,",
+				"          tgt_branch = srcexistingdimension@branch,",
+				"          tgt_country = srcexistingdimension@country,",
+				"          tgt_kyc_status = srcexistingdimension@kyc_status,",
+				"          tgt_investment_limit = srcexistingdimension@investment_limit,",
+				"          tgt_last_review_date = srcexistingdimension@last_review_date,",
+				"          tgt_surrogate_key = surrogate_key,",
+				"          tgt_columneffective_start_date = columneffective_start_date,",
+				"          tgt_effective_end_date = effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> selectAfterJoin",
+				"prepareChangedNewVersion select(mapColumn(",
+				"          surrogate_key = tgt_surrogate_key,",
+				"          client_id = tgt_client_id,",
+				"          client_name = tgt_client_name,",
+				"          account_type = tgt_account_type,",
+				"          risk_category = tgt_risk_category,",
+				"          relationship_manager = tgt_relationship_manager,",
+				"          branch = tgt_branch,",
+				"          country = tgt_country,",
+				"          kyc_status = tgt_kyc_status,",
+				"          investment_limit = tgt_investment_limit,",
+				"          last_review_date = tgt_last_review_date,",
+				"          columneffective_start_date = tgt_columneffective_start_date,",
+				"          effective_end_date = tgt_effective_end_date,",
+				"          is_current,",
+				"          hash_key,",
+				"          record_status,",
+				"          effective_start_date",
+				"     ),",
+				"     skipDuplicateMapInputs: false,",
+				"     skipDuplicateMapOutputs: false) ~> selectExpiredOldRecord",
+				"selectExpiredOldRecord derive(is_current = toString('N'),",
+				"          effective_end_date = currentDate() - 1) ~> deriveExpireOldRecord",
+				"srcexistingdimension filter(is_current == 'N') ~> filterExistingHistory",
+				"splitRecords@noChangeRecords select(mapColumn(",
+				"          surrogate_key = tgt_surrogate_key,",
+				"          client_id = tgt_client_id,",
+				"          client_name = tgt_client_name,",
+				"          account_type = tgt_account_type,",
+				"          risk_category = tgt_risk_category,",
+				"          relationship_manager = tgt_relationship_manager,",
+				"          branch = tgt_branch,",
+				"          country = tgt_country,",
+				"          kyc_status = tgt_kyc_status,",
+				"          investment_limit = tgt_investment_limit,",
+				"          last_review_date = tgt_last_review_date,",
+				"          effective_start_date = tgt_columneffective_start_date,",
+				"          effective_end_date = tgt_effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: false,",
+				"     skipDuplicateMapOutputs: false) ~> selectNoChangeRecords",
+				"prepareNewRecords select(mapColumn(",
+				"          surrogate_key,",
+				"          client_id = src_client_id,",
+				"          client_name = src_client_name,",
+				"          account_type = src_account_type,",
+				"          risk_category = src_risk_category,",
+				"          relationship_manager = src_relationship_manager,",
+				"          branch = src_branch,",
+				"          country = src_country,",
+				"          kyc_status = src_kyc_status,",
+				"          investment_limit = src_investment_limit,",
+				"          last_review_date = src_last_review_date,",
+				"          effective_start_date,",
+				"          effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: false,",
+				"     skipDuplicateMapOutputs: false) ~> selectNewRecords",
+				"prepareChangedNewVersion select(mapColumn(",
+				"          surrogate_key,",
+				"          client_id = src_client_id,",
+				"          client_name = src_client_name,",
+				"          account_type = src_account_type,",
+				"          risk_category = src_risk_category,",
+				"          relationship_manager = src_relationship_manager,",
+				"          branch = src_branch,",
+				"          country = src_country,",
+				"          kyc_status = src_kyc_status,",
+				"          investment_limit = src_investment_limit,",
+				"          last_review_date = src_last_review_date,",
+				"          effective_start_date,",
+				"          effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: false,",
+				"     skipDuplicateMapOutputs: false) ~> selectChangedNewVersion",
+				"filterExistingHistory select(mapColumn(",
+				"          surrogate_key,",
+				"          client_id,",
+				"          client_name,",
+				"          account_type,",
+				"          risk_category,",
+				"          relationship_manager,",
+				"          branch,",
+				"          country,",
+				"          kyc_status,",
+				"          investment_limit,",
+				"          last_review_date,",
+				"          effective_start_date = columneffective_start_date,",
+				"          effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: false,",
+				"     skipDuplicateMapOutputs: false) ~> selectExistingHistory",
+				"selectNewRecords, selectNoChangeRecords, selectExistingHistory, selectChangedNewVersion, selectExpiredOldRecord1 union(byName: false)~> unionFinalScd2Records",
+				"deriveExpireOldRecord select(mapColumn(",
+				"          surrogate_key,",
+				"          client_id,",
+				"          client_name,",
+				"          account_type,",
+				"          risk_category,",
+				"          relationship_manager,",
+				"          branch,",
+				"          country,",
+				"          kyc_status,",
+				"          investment_limit,",
+				"          last_review_date,",
+				"          effective_start_date,",
+				"          effective_end_date,",
+				"          is_current,",
+				"          hash_key",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> selectExpiredOldRecord1",
+				"unionFinalScd2Records sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'parquet',",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> sinkScd2Dimension"
+			]
+		}
+	}
+}
